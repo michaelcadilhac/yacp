@@ -17,29 +17,45 @@ import android.app.FragmentManager;
 import android.app.FragmentTransaction;
 import android.widget.SeekBar;
 import android.graphics.Color;
+import java.util.List;
+import java.util.ArrayList;
+import android.graphics.PorterDuff;
 
 public class BrushPickerDialog extends DialogFragment
   implements ColorWheel.OnColorChangedListener,
   SeekBar.OnSeekBarChangeListener {
 
     public interface OnBrushPickedListener {
-        void onBrushPicked (int color, float strokeWidth);
+        void onBrushPicked (Brush brush);
     }
 
     private static final float MAX_STROKEWIDTH = 100.f;
 
     private OnBrushPickedListener mListener = null;
-    private int mColor = 0;
-    private float mStrokeWidth = 0.f;
+    private ColorWheel mWheel = null;
     private ColorSample mSample = null;
     private SeekBar mAlphaBar = null;
     private SeekBar mStrokeBar = null;
+    private List<Brush> mHistory = null;
 
-    public static BrushPickerDialog newInstance (int color, float strokeWidth) {
-      BrushPickerDialog frag = new BrushPickerDialog();
-      Bundle args = new Bundle();
-      args.putInt("color", color);
-      args.putFloat("stroke_width", strokeWidth);
+    public static BrushPickerDialog newInstance (int color, float strokeWidth,
+						 List<Brush> history) {
+      BrushPickerDialog frag = new BrushPickerDialog ();
+      Bundle args = new Bundle ();
+      args.putInt ("color", color);
+      args.putFloat ("stroke_width", strokeWidth);
+      if (history != null && history.size () != 0) {
+	int[] historyColor = new int[history.size ()];
+	float[] historyStrokeWidth = new float[history.size ()];
+	int i = 0;
+	for (Brush brush : history) {
+	  historyColor[i] = brush.getColor ();
+	  historyStrokeWidth[i] = brush.getStrokeWidth ();
+	  ++i;
+	}
+	args.putIntArray ("history_color", historyColor);
+	args.putFloatArray ("history_stroke_width", historyStrokeWidth);
+      }
       frag.setArguments(args);
       return frag;
     }
@@ -52,35 +68,52 @@ public class BrushPickerDialog extends DialogFragment
 	mListener = (OnBrushPickedListener) activity;
     }
 
-    public void setOnBrushPickedListener (OnBrushPickedListener listener) {
+    public int getColor () {
+      return mSample.getColor ();
+    }
+
+    public float getStrokeWidth () {
+      return mSample.getStrokeWidth ();
+    }
+
+    public Brush getBrush () {
+      return mSample.getBrush ();
+    }
+
+    public List<Brush> getHistory () {
+      return mHistory;
+    }
+
+    public BrushPickerDialog setOnBrushPickedListener (OnBrushPickedListener listener) {
       mListener = listener;
+      return this;
     }
 
     public void onColorChanged (int color) {
       // The wheel is alpha-agnostic.
-      mColor = (color & 0x00FFFFFF) | (mColor & 0xFF000000);
-      mSample.setColor (color);
+      mSample.setColor ((color & 0x00FFFFFF) | (mSample.getColor () & 0xFF000000));
     }
 
     // One of the two seekBars changed.
     public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-      if (seekBar.getId () == R.id.alpha) {
-	mColor = (mColor & 0x00FFFFFF) | ((progress * 255 / 100) << 24);
-	mSample.setColor (mColor);
-      } else {
-	mStrokeWidth = progress * MAX_STROKEWIDTH / 100.f;
-	mSample.setStrokeWidth (mStrokeWidth);
-      }
+      if (seekBar.getId () == R.id.alpha)
+	mSample.setColor ((mSample.getColor () & 0x00FFFFFF) |
+			  ((progress * 255 / 100) << 24));
+      else
+	mSample.setStrokeWidth (progress * MAX_STROKEWIDTH / 100.f);
     }
 
     public void onStopTrackingTouch (SeekBar sb) {}
     public void onStartTrackingTouch (SeekBar sb) {}
 
+    private void setBrush (Brush brush) {
+      mWheel.setColor (brush.getColor () | 0xFF000000);
+      mAlphaBar.setProgress ((int) (Color.alpha (brush.getColor ()) * 100.f / 255.f));
+      mStrokeBar.setProgress ((int) (brush.getStrokeWidth () * 100.f / MAX_STROKEWIDTH));
+    }
+
     @Override
     public Dialog onCreateDialog(Bundle savedInstanceState) {
-      mColor = getArguments().getInt ("color");
-      mStrokeWidth = getArguments().getFloat ("stroke_width");
-
       final View layout = getActivity ().getLayoutInflater().
 	inflate (R.layout.brush_picker_dialog, null);
 
@@ -89,7 +122,7 @@ public class BrushPickerDialog extends DialogFragment
 			   new DialogInterface.OnClickListener() {
 			       public void onClick(DialogInterface dialog, int whichButton) {
 				 if (mListener != null)
-				   mListener.onBrushPicked (mColor, mStrokeWidth);
+				   mListener.onBrushPicked (mSample.getBrush ());
 			       }
 			   }
 	  )
@@ -97,25 +130,36 @@ public class BrushPickerDialog extends DialogFragment
 	.setView (layout)
 	.create ();
 
-			
-      mSample = (ColorSample) layout.findViewById (R.id.sample);
-      mSample.setColor (mColor);
-      mSample.setStrokeWidth (mStrokeWidth);
+      mSample = ((ColorSample) layout.findViewById (R.id.sample))
+	.setColor (getArguments().getInt ("color"))
+	.setStrokeWidth (Math.min (getArguments().getFloat ("stroke_width"),
+				   MAX_STROKEWIDTH));
 
-      final ColorWheel wheel = (ColorWheel) layout.findViewById (R.id.wheel);
-      wheel.setOnColorChangedListener (this);
-      // The wheel is not concerned by alpha.
-      wheel.setColor (mColor | 0xFF000000);
+      mWheel = (ColorWheel) layout.findViewById (R.id.wheel);
+      mWheel.setOnColorChangedListener (this);
 
       mAlphaBar = (SeekBar) layout.findViewById (R.id.alpha);
-      mAlphaBar.setProgress ((int) (Color.alpha (mColor) * 100.f / 255.f));
       mAlphaBar.setOnSeekBarChangeListener(this);
 
       mStrokeBar = (SeekBar) layout.findViewById (R.id.strokewidth);
-      if (mStrokeWidth > MAX_STROKEWIDTH)
-	mStrokeWidth = MAX_STROKEWIDTH;
-      mStrokeBar.setProgress ((int) (mStrokeWidth * 100.f / MAX_STROKEWIDTH));
       mStrokeBar.setOnSeekBarChangeListener(this);
+
+      setBrush (mSample.getBrush ());
+
+      int[] historyColor = getArguments ().getIntArray ("history_color");
+      float[] historyStrokeWidth = getArguments ().getFloatArray ("history_stroke_width");
+      if (historyColor != null && historyStrokeWidth != null &&
+	  historyColor.length != 0 &&
+	  historyColor.length == historyStrokeWidth.length) {
+	mHistory = new ArrayList<Brush> (historyColor.length);
+	for (int i = 0; i < historyColor.length; ++i)
+	  mHistory.add (new Brush (historyColor[i], historyStrokeWidth[i]));
+      }
+      ((ColorHistory) layout.findViewById (R.id.history)).setHistory (mHistory)
+	.setOnBrushPickedListener (new ColorHistory.OnBrushPickedListener () {
+	      public void onBrushPicked (Brush brush) {
+		setBrush (brush);
+	      }});
 
       return alert;
     }

@@ -29,6 +29,8 @@ import android.content.res.TypedArray;
 import android.graphics.ComposeShader;
 import android.graphics.Xfermode;
 import android.view.View.MeasureSpec;
+import android.os.Parcelable;
+import android.os.Parcel;
 
 public class ColorWheel extends View {
     public interface OnColorChangedListener {
@@ -38,8 +40,7 @@ public class ColorWheel extends View {
     private Paint mSweepPaint = null;
     private OnColorChangedListener mListener = null;
 
-    private int   mColor = 0;
-    private float mHue = 0.f; // mHue is mAngle in degrees.
+    private float mHue = 0.f;
     private float mVal = 0.f;
     private float mSat = 0.f;
 
@@ -56,6 +57,8 @@ public class ColorWheel extends View {
     private float SEL_CIRCLE_RADIUS;
     private float BW_SPAN;
 
+    // CONSTRUCTORS
+
     public ColorWheel (Context context) {
       this (context, null, 0);
     }
@@ -67,36 +70,105 @@ public class ColorWheel extends View {
     public ColorWheel (Context context, AttributeSet attrs, int defStyle) {
       super (context, attrs, defStyle);
 
-      TypedArray a = context.obtainStyledAttributes(attrs,
-						    R.styleable.ColorWheel,
-						    defStyle, 0);
-      mColor = a.getColor (R.styleable.ColorWheel_android_color, mColor);
-      a.recycle();
+      TypedArray a = context.obtainStyledAttributes (attrs,
+						     R.styleable.ColorWheel,
+						     defStyle, 0);
+      setColor (a.getColor (R.styleable.ColorWheel_android_color, 0xFF000000));
+      a.recycle ();
     }
 
-    public void setColor (int color)
-    {
+    // PARCELABLE INSTANCE SAVE
+    static class SavedState extends BaseSavedState {
+	float hue = 0.f;
+	float val = 0.f;
+	float sat = 0.f;
+        
+        SavedState (Parcelable superState) {
+	  super (superState);
+        }
+        
+        private SavedState (Parcel in) {
+	  super (in);
+	  hue = in.readFloat ();
+	  val = in.readFloat ();
+	  sat = in.readFloat ();
+        }
+
+        @Override
+        public void writeToParcel (Parcel out, int flags) {
+	  super.writeToParcel (out, flags);
+	  out.writeFloat (hue);
+	  out.writeFloat (val);
+	  out.writeFloat (sat);
+        }
+
+        public static final Parcelable.Creator<SavedState> CREATOR
+	= new Parcelable.Creator<SavedState>() {
+	  public SavedState createFromParcel (Parcel in) {
+	    return new SavedState (in);
+	  }
+
+	  public SavedState[] newArray (int size) {
+	    return new SavedState[size];
+	  }
+        };
+    }
+
+    @Override
+    public Parcelable onSaveInstanceState () {
+      Parcelable superState = super.onSaveInstanceState();
+      SavedState ss = new SavedState(superState);
+        
+      ss.hue = mHue;
+      ss.sat = mSat;
+      ss.val = mVal;
+      return ss;
+    }
+
+
+    @Override
+    public void onRestoreInstanceState (Parcelable state) {
+      SavedState ss = (SavedState) state;
+      super.onRestoreInstanceState (ss.getSuperState());
+        
+      mHue = ss.hue;
+      mSat = ss.sat;
+      mVal = ss.val;
+    }
+
+    //////////////////////////////////////////////////////////////////
+
+    private void colorChanged () {
+      if (mListener != null)
+	mListener.onColorChanged (getColor ());
+    }
+ 
+    public ColorWheel setColor (int color) {
       float hsv[] = {0.f, 0.f, 0.f};
       Color.colorToHSV (color, hsv);
       mHue = hsv[0];
       mSat = hsv[1];
       mVal = hsv[2];
 
+      colorChanged ();
       invalidate ();
+      return this;
     }
 
     public int getColor () {
-      return mColor;
+      float hsv[] = { mHue, mSat, mVal };
+      return Color.HSVToColor (hsv);
     }
 
-    public void setOnColorChangedListener (OnColorChangedListener listener) {
+    public ColorWheel setOnColorChangedListener (OnColorChangedListener listener) {
       mListener = listener;
+      return this;
     }
 
     @Override 
-    protected void onDraw(Canvas canvas) {
+    protected void onDraw (Canvas canvas) {
       // Wheel:
-      canvas.drawCircle(WHEEL_X, WHEEL_Y, WHEEL_RADIUS, mSweepPaint);
+      canvas.drawCircle (WHEEL_X, WHEEL_Y, WHEEL_RADIUS, mSweepPaint);
 
       // Triangle:
       // We work in a bitmap because of the way we clip a triangle out of
@@ -104,17 +176,17 @@ public class ColorWheel extends View {
       // print it as-is, rather than drawing a non rotated bitmap and
       // print it rotated, for antialiasing purposes.
 
-      Bitmap bitmap = Bitmap.createBitmap((int) (WHEEL_INSIDE_RADIUS * 2.f),
-					  (int) (WHEEL_INSIDE_RADIUS * 2.f),
-					  Bitmap.Config.ARGB_8888);
-      Canvas triangleCanvas = new Canvas(bitmap);
+      Bitmap bitmap = Bitmap.createBitmap ((int) (WHEEL_INSIDE_RADIUS * 2.f),
+					   (int) (WHEEL_INSIDE_RADIUS * 2.f),
+					   Bitmap.Config.ARGB_8888);
+      Canvas triangleCanvas = new Canvas (bitmap);
       triangleCanvas.translate (WHEEL_INSIDE_RADIUS / 2.f,
 				WHEEL_INSIDE_RADIUS - WHEEL_TRIANGLE_SIDE / 2);
       triangleCanvas.rotate (mHue, WHEEL_INSIDE_RADIUS / 2.f,
 			     WHEEL_TRIANGLE_SIDE / 2.f);
 
-      Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-      paint.setStyle(Paint.Style.FILL_AND_STROKE);
+      Paint paint = new Paint (Paint.ANTI_ALIAS_FLAG);
+      paint.setStyle (Paint.Style.FILL_AND_STROKE);
 
       // Draw the shades
       float hsv[] = { mHue, 1.f, 1.f };
@@ -144,14 +216,14 @@ public class ColorWheel extends View {
       paint = new Paint (Paint.ANTI_ALIAS_FLAG);
       paint.setStyle (Paint.Style.FILL_AND_STROKE);
       paint.setColor (0x00000000);
-      paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC));
+      paint.setXfermode (new PorterDuffXfermode (PorterDuff.Mode.SRC));
       triangleCanvas.drawPath (triangle, paint);
 
       // Print the triangle into the main canvas.
-      canvas.drawBitmap(bitmap,
-			WHEEL_X - WHEEL_INSIDE_RADIUS,
-			WHEEL_Y - WHEEL_INSIDE_RADIUS,
-			new Paint (Paint.ANTI_ALIAS_FLAG));
+      canvas.drawBitmap (bitmap,
+			 WHEEL_X - WHEEL_INSIDE_RADIUS,
+			 WHEEL_Y - WHEEL_INSIDE_RADIUS,
+			 new Paint (Paint.ANTI_ALIAS_FLAG));
 
 
 
@@ -176,8 +248,8 @@ public class ColorWheel extends View {
       //   |----/S
       //sY | /__|        tan (pi/2 - pi/3) = sY/sX
       //      sX         cos (pi/2 - pi/3) = sX/(S * side)
-      //   hence sX = sqrt(3)/2 * (S * side) = 3/2 * S * radius
-      //     and sY = sX / sqrt(3)
+      //   hence sX = sqrt (3)/2 * (S * side) = 3/2 * S * radius
+      //     and sY = sX / sqrt (3)
 
       final double sX = 3.f / 2.f * mSat * WHEEL_INSIDE_RADIUS;
       final double sY = sX / Math.sqrt (3);
@@ -199,7 +271,7 @@ public class ColorWheel extends View {
     }
 
     @Override
-    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+    protected void onMeasure (int widthMeasureSpec, int heightMeasureSpec) {
       int wheelSide = 0;
 
       if (MeasureSpec.getMode (widthMeasureSpec) == MeasureSpec.UNSPECIFIED) 
@@ -241,17 +313,17 @@ public class ColorWheel extends View {
 			       0xFF00FF00, 0xFF00FFFF,
 			       0xFF0000FF, 0xFFFF00FF,
 			       0xFFFF0000 };
-      final Shader sg = new SweepGradient(WHEEL_X, WHEEL_Y, hueRange, null);
-      mSweepPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-      mSweepPaint.setStyle(Paint.Style.STROKE);
-      mSweepPaint.setShader(sg);
-      mSweepPaint.setStrokeWidth(WHEEL_WIDTH);
+      final Shader sg = new SweepGradient (WHEEL_X, WHEEL_Y, hueRange, null);
+      mSweepPaint = new Paint (Paint.ANTI_ALIAS_FLAG);
+      mSweepPaint.setStyle (Paint.Style.STROKE);
+      mSweepPaint.setShader (sg);
+      mSweepPaint.setStrokeWidth (WHEEL_WIDTH);
     }
 
     @Override
-    public boolean onTouchEvent(MotionEvent event) {
-      float x = event.getX() - WHEEL_X;
-      float y = event.getY() - WHEEL_Y;
+    public boolean onTouchEvent (MotionEvent event) {
+      float x = event.getX () - WHEEL_X;
+      float y = event.getY () - WHEEL_Y;
       float distToCenter = (float) (Math.sqrt (x * x + y * y));
       boolean inH = false;
       boolean inSV = false;
@@ -263,7 +335,7 @@ public class ColorWheel extends View {
 	  inSV = true;
       }
 					
-      switch (event.getAction()) {
+      switch (event.getAction ()) {
 	case MotionEvent.ACTION_MOVE:
 	case MotionEvent.ACTION_DOWN:
 	  if (!mLuming && (inH || mWheeling)) {
@@ -272,7 +344,7 @@ public class ColorWheel extends View {
 	    if (angle < 0)
 	      angle += 2.f * (float) Math.PI;
 	    mHue = angle * 360.f / (2.f * (float) Math.PI);
-	    invalidate();
+	    invalidate ();
 	  } 
 	  else if (!mWheeling && (inSV || mLuming)){
 	    mLuming = true;
@@ -335,33 +407,30 @@ public class ColorWheel extends View {
 	    //   | l' \     /       X marks the spot.  The value for S is the portion of the side.
 	    //   |     \ /
 	    //   |    /             l is side / 2 + fY
-	    //   | /		mSat				l' is height - abs(fX) = 3 / 2 * WHEEL_INSIDE_RADIUS + fX
+	    //   | /		mSat				l' is height - abs (fX) = 3 / 2 * WHEEL_INSIDE_RADIUS + fX
 	    //           
 
 	    final double l = WHEEL_TRIANGLE_SIDE / 2.f + fY;
 	    final double lp = 3.f / 2.f * WHEEL_INSIDE_RADIUS + fX;
 	    final double a = Math.PI / 4.f - Math.atan ((l - lp) / (l + lp));
-	    mSat = (float) (Math.sin (a) / Math.sin(a + Math.PI / 3.f));
+	    mSat = (float) (Math.sin (a) / Math.sin (a + Math.PI / 3.f));
 
 	    // Compute V.
 	    // Length of [S, mSat]
-	    final double o = 3.f / 2.f * WHEEL_INSIDE_RADIUS / // = side * sin(pi/3)
+	    final double o = 3.f / 2.f * WHEEL_INSIDE_RADIUS / // = side * sin (pi/3)
 	      Math.sin (a + Math.PI / 3.f);
 	    // Length of [S, (fX, fY)]
 	    final double d = Math.sqrt ((fX + 3.f / 2.f * WHEEL_INSIDE_RADIUS) * (fX + 3.f / 2.f * WHEEL_INSIDE_RADIUS) +
 					(fY + WHEEL_TRIANGLE_SIDE / 2.f) * (fY + WHEEL_TRIANGLE_SIDE / 2.f));
 	    mVal = (float) (d / o);
-	    invalidate();
+	    invalidate ();
 	  }
 	  break;
 	case MotionEvent.ACTION_UP:
 	  mWheeling = mLuming = false;
 	  break;
       }
-      float hsv[] = { mHue, mSat, mVal };
-      mColor = Color.HSVToColor (hsv);
-      if (mListener != null)
-	mListener.onColorChanged (mColor);
+      colorChanged ();
       return true;
     }
 }

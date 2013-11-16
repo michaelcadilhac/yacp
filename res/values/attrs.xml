@@ -5,7 +5,9 @@
   </declare-styleable> 
   <declare-styleable name="ColorSample">
     <attr name="android:gestureColor"/>
-		<attr name="android:gestureStrokeWidth"/>
-    <attr name="android:background"/>
+    <attr name="android:gestureStrokeWidth"/>
+  </declare-styleable> 
+  <declare-styleable name="ColorHistory">
+    <attr name="android:thicknessRatio"/>
   </declare-styleable> 
 </resources>
